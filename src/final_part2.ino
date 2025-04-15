@@ -15,7 +15,7 @@ const float BOARD_VOLTAGE = 4910.0;                 // Actual voltage measured o
 const float MID_VOLTAGE = BOARD_VOLTAGE / 2.0;      // Half the board voltage measured.
 
 const float BATTERY_LOW_LIMT = 2700.0;
-const float BATTERY_CC_LIMIT = 4000.0;
+const float BATTERY_CC_LIMIT = 3700.0;
 const float BATTERY_CV_LIMIT = 4000.0;
 const float BATTERY_HARD_LIMIT = 4200.0;
 
