@@ -9,10 +9,15 @@
 #define OUTPUT_PIN_PWM 6            // D6 Digital output pin for writing PWM signal.
 
 // Constants
+const int NUM_READS = 100;                          // Average reads of pin value.
 const float ACS_SENSITIVITY = 185.0;                // mV/A
 const float BOARD_VOLTAGE = 4910.0;                 // Actual voltage measured on 5v pin.
 const float MID_VOLTAGE = BOARD_VOLTAGE / 2.0;      // Half the board voltage measured.
-const int NUM_READS = 100;                          // Average reads of pin value.
+
+const float BATTERY_LOW_LIMT = 2700.0;
+const float BATTERY_CC_LIMIT = 4000.0;
+const float BATTERY_CV_LIMIT = 4000.0;
+const float BATTERY_HARD_LIMIT = 4200.0;
 
 // Initial variable declarations
 // PWM Control
@@ -30,6 +35,7 @@ float solarVoltage = 0.0;
 float battRawValue = 0.0;
 float battVoltage = 0.0;
 
+// Finite State Machine for battery
 enum State{
   initialize = 0, 
   const_current = 1, 
@@ -69,18 +75,21 @@ void CheckState() {
   switch(ChargeState) {
 
     case initialize:
-      // If conditions ready, 
-      //    move on to const_current
+      if (CheckNextState(ChargeState) == true) {
+        ChargeState = const_current;
+      }
       break;
     
     case const_current:
-      // If conditions ready, 
-      //    move on to const_voltage
+      if (CheckNextState(ChargeState) == true) {
+        ChargeState = const_voltage;
+      }
       break;
     
     case const_voltage:
-      // If conditions ready, 
-      //    move on to charge_complete
+      if (CheckNextState(ChargeState) == true) {
+        ChargeState = charge_complete;
+      }
       break;
 
     case charge_complete:
@@ -101,15 +110,58 @@ void CheckState() {
 
 // ***NEED TO FINISH***
 // *****************************************************************
-boolean CheckNextState(State NextState) {
-  // If conditions ready, 
-  //    move on to const_current
+boolean CheckNextState(State CurrentState) {
+  boolean nextStateReady;
 
-  // Else If battVoltage >= battVoltageSoftLimit && battVoltage < battVoltageHardLimit,
-  //  move on to charge_complete  
+  switch(CurrentState) {
 
-  // Else If battVoltage == battVoltageHardLimit,
-  //  move on to charge_complete
+    case initialize:
+      // ***STUB***
+      if (battVoltage < BATTERY_CC_LIMIT && battVoltage > BATTERY_LOW_LIMT) {
+        // move on to const_current
+        nextStateReady = true;
+      }
+      else {
+        nextStateReady = false;
+      }
+      break;
+    
+    case const_current:
+      // ***STUB***
+      if (battVoltage == battVoltage) { 
+        // move on to const_voltage
+        nextStateReady = true;
+      }
+      else {
+        nextStateReady = false;
+      }
+      break;
+    
+    case const_voltage:
+      // ***STUB***
+      if (battVoltage == battVoltage) { 
+        // move on to charge_complete
+        nextStateReady = true;
+      }
+      else {
+        nextStateReady = false;
+      }
+      break;
+
+    case charge_complete:
+      // Stay here
+      nextStateReady = false;
+      break;
+
+    case charge_error:
+      // Stay here  
+      nextStateReady = false;
+      break;
+
+    default:
+      nextStateReady = false;
+
+  }
 
 }
 // *****************************************************************
