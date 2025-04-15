@@ -62,6 +62,8 @@ void loop() {
 }
 
 
+// ***NEED TO FINISH***
+// *****************************************************************
 void CheckState() {
 
   switch(ChargeState) {
@@ -94,8 +96,11 @@ void CheckState() {
   }
 
 }
+// *****************************************************************
 
 
+// ***NEED TO FINISH***
+// *****************************************************************
 boolean CheckNextState(State NextState) {
   // If conditions ready, 
   //    move on to const_current
@@ -107,6 +112,7 @@ boolean CheckNextState(State NextState) {
   //  move on to charge_complete
 
 }
+// *****************************************************************
 
 
 // ***NEED TO FINISH***
