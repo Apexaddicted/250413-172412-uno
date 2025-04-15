@@ -202,7 +202,7 @@ void RefreshBatteryVoltage() {
 
 
 // Set duty cycle to control charging during Constant Voltage 
-void SetDutyCycle(int dutyCycle){
+void SetDutyCycle(int dutyCycle) {
   int pwmValue;
   pwmValue = ConvertPWM2Analog(dutyCycle);                          // Convert duty cycle (0% - 100%) to 8-bit analog output (0 - 255)
   analogWrite(OUTPUT_PIN_PWM, pwmValue);                            // Write (0-255) analog output to output pin
@@ -218,13 +218,13 @@ float GetPinVoltage(int inputPin) {
 
 
 // Convert 10-bit value to a calculated voltage (0.0V - 5000.0V)
-float ConvertAnalog2Volt(float analogValue){
+float ConvertAnalog2Volt(float analogValue) {
   return ((BOARD_VOLTAGE/1023.0) * analogValue);
 }
 
 
 // Convert ACS712 sensor voltage to a calculated current (-5000.0mA - 5000.0mA)
-float ConvertVolt2Amp(float inputVoltage){
+float ConvertVolt2Amp(float inputVoltage) {
   float tempValue;
   tempValue = ((inputVoltage - MID_VOLTAGE) / ACS_SENSITIVITY);
   return tempValue * 1000.0;
@@ -278,7 +278,7 @@ String GetCurrentState() {
 
 
 // Print readings to Serial Monitor for debugging
-void PrintStatus(){
+void PrintStatus() {
   String currState = GetCurrentState();
   Serial.print("\n");
   Serial.print("Current State: ");
