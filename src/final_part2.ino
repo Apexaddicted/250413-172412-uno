@@ -1,5 +1,5 @@
 // ECE485W Final Project
-
+// Solar charger for lithium ion battery, controlled by Arduino Uno.
 #include <Arduino.h>
 
 // Pin declarations
@@ -15,7 +15,7 @@ const float MID_VOLTAGE = BOARD_VOLTAGE / 2.0;      // Half the board voltage me
 const int NUM_READS = 100;                          // Average reads of pin value.
 
 // Initial variable declarations
-// PWM 
+// PWM Control
 int dutyCycle = 0;
 
 // ACS712
@@ -30,6 +30,14 @@ float solarVoltage = 0.0;
 float battRawValue = 0.0;
 float battVoltage = 0.0;
 
+enum State{
+  initialize = 0, 
+  const_current = 1, 
+  const_voltage = 2, 
+  charge_complete = 3, 
+  charge_error = 4
+} ChargeState;
+
 
 void setup() {
   Serial.begin(9600);
@@ -41,42 +49,105 @@ void setup() {
   //TCCR0B = TCCR0B & B11111000 | B00000011;      // for PWM frequency of 976.56 Hz (The DEFAULT)
   TCCR0B = TCCR0B & B11111000 | B00000101;        // for PWM frequency of 61.04 Hz
 
-  //***NEED TO CREATE CALIBRATION FUNCTION FOR ACS712 SENSOR***
-  //acsCalOffset = GetAcsOffset();
+  ChargeState = initialize;
 }
 
 
 void loop() {
-  // CREATE STATE MACHINE
+  RefreshChargeCurrent();
+  RefreshChargeVoltage();
+  RefreshBatteryVoltage();
+  CheckState();
+  PrintStatus();
+}
 
-  // Current sensing  
-  acsVoltage = GetPinVoltage(INPUT_PIN_ACS_CURRENT);                // Get acs sensor voltage.
-  acsCurrent = ConvertVolt2Amp(acsVoltage);                         // Convert acs sensor voltage to current.
 
-  // Voltage sensing 
-  solarVoltage = GetPinVoltage(INPUT_PIN_SOLAR_VOLTAGE);            // Get solar panel voltage.
-  battVoltage = GetPinVoltage(INPUT_PIN_BATT_VOLTAGE);              // Get battery voltage.
+void CheckState() {
+
+  switch(ChargeState) {
+
+    case initialize:
+      // If conditions ready, 
+      //    move on to const_current
+      break;
+    
+    case const_current:
+      // If conditions ready, 
+      //    move on to const_voltage
+      break;
+    
+    case const_voltage:
+      // If conditions ready, 
+      //    move on to charge_complete
+      break;
+
+    case charge_complete:
+      // Stay here
+      break;
+
+    case charge_error:
+      // Stay here
+      break;
+
+    default:
+      ChargeState = charge_error;
+  }
 
 }
 
 
-// ***NEED TO FINISH THIS AND CALL IN SETUP()
+boolean CheckNextState(State NextState) {
+  // If conditions ready, 
+  //    move on to const_current
+
+  // Else If battVoltage >= battVoltageSoftLimit && battVoltage < battVoltageHardLimit,
+  //  move on to charge_complete  
+
+  // Else If battVoltage == battVoltageHardLimit,
+  //  move on to charge_complete
+
+}
+
+
+// ***NEED TO FINISH***
+// *****************************************************************
 float GetAcsOffset(void) {
   float tempValue;
   // READ ACS PIN VOLTAGE WHILE WE KNOW THAT NO CURRENT IS FLOWING
   SetDutyCycle(0);
   delay(10);
+
   // SET THE ACS OFFSET CALIBRATION VALUE
   tempValue = GetPinVoltage(INPUT_PIN_ACS_CURRENT);
-
- 
+  
 }
+// *****************************************************************
+
+
+// Refresh current flow from charger.
+void RefreshChargeCurrent() { 
+  acsVoltage = GetPinVoltage(INPUT_PIN_ACS_CURRENT);      // Get acs sensor voltage.
+  acsCurrent = ConvertVolt2Amp(acsVoltage);               // Convert acs sensor voltage to current.
+}
+
+
+// Refresh voltage from charger.
+void RefreshChargeVoltage() {
+  solarVoltage = GetPinVoltage(INPUT_PIN_SOLAR_VOLTAGE);  // Get solar panel voltage.
+}
+
+
+// Refresh voltage on battery.
+void RefreshBatteryVoltage() {
+  battVoltage = GetPinVoltage(INPUT_PIN_BATT_VOLTAGE);    // Get battery voltage.
+}
+
 
 // Set duty cycle to control charging during Constant Voltage 
 void SetDutyCycle(int dutyCycle){
   int pwmValue;
   pwmValue = ConvertPWM2Analog(dutyCycle);                          // Convert duty cycle (0% - 100%) to 8-bit analog output (0 - 255)
-  analogWrite(OUTPUT_PIN_PWM, pwmValue);                              // Write (0-255) analog output to output pin
+  analogWrite(OUTPUT_PIN_PWM, pwmValue);                            // Write (0-255) analog output to output pin
 }
 
 
@@ -122,23 +193,52 @@ float GetAvgInput(int numReads, int inputPin) {
 }
 
 
+// Get the string value for the current state
+String GetCurrentState() {
+  String currState;
+  switch(ChargeState) {
+    case initialize:    
+      currState = "initialize";
+      break;
+    case const_current:
+      currState = "const_current";
+      break;
+    case const_voltage:
+      currState = "const_voltage";
+      break;
+    case charge_complete:
+      currState = "charge_complete";
+      break;
+    case charge_error:
+      currState = "charge_error";
+      break;
+    default:
+      currState = "unknown_state";
+  }
+  return currState;
+}
+
+
 // Print readings to Serial Monitor for debugging
 void PrintStatus(){
-
-  Serial.print ("dutyCycle: ");
+  String currState = GetCurrentState();
+  Serial.print("\n");
+  Serial.print("Current State: ");
+  Serial.print(currState);
+  Serial.print("\n");
+  Serial.print ("Duty Cycle: ");
   Serial.print(dutyCycle);
-
-  Serial.print(", Solar: ");
+  Serial.print("\n");
+  Serial.print("Solar Voltage: ");
   Serial.print(solarVoltage);
   Serial.print(" mV");
-  Serial.print(", Batt: ");
+  Serial.print("\n");
+  Serial.print("Battery Voltage: ");
   Serial.print(battVoltage);
   Serial.print(" mV");
-  Serial.print(",       ");
-
-  Serial.print(", Current: ");
+  Serial.print("\n");
+  Serial.print("Charge Current: ");
   Serial.print(acsCurrent);
   Serial.print(" mA");
-
   Serial.print("\n");
 }
