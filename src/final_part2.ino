@@ -8,15 +8,22 @@
 #define INPUT_PIN_BATT_VOLTAGE 2    // A2 Analog input pin for reading voltage from battery.
 #define OUTPUT_PIN_PWM 6            // D6 Digital output pin for writing PWM signal.
 
+#define PWM_UP 1
+#define PWM_DOWN -1
+
 // Constants
 const int NUM_READS = 100;                          // Average reads of pin value.
+const int TIME_LIMIT = 10000;                       // Time limit to let battery voltage discharge in charge_complete state.
+
 const float ACS_SENSITIVITY = 185.0;                // mV/A
 const float BOARD_VOLTAGE = 4910.0;                 // Actual voltage measured on 5v pin.
 const float MID_VOLTAGE = BOARD_VOLTAGE / 2.0;      // Half the board voltage measured.
+
 const float BATTERY_VOLTAGE_LOW_LIMIT = 2700.0;     // Absolute LOW battery voltage limit
-const float BATTERY_VOLTAGE_HIGH_LIMIT = 4100.0;    // Absolute HIGH battery voltage limit
+const float BATTERY_VOLTAGE_HIGH_LIMIT = 3700.0;    // Absolute HIGH battery voltage limit
 const float BATTERY_CURRENT_CC_LIMIT = 1250.0;      // Absolute HIGH current limit
-const float BATTERY_VOLTAGE_CC_STOP = 3900.0;       // CC STOP setpoint
+
+const float BATTERY_VOLTAGE_CC_STOP = 3500.0;       // CC STOP setpoint
 const float BATTERY_CURRENT_CV_STOP = 50.0;         // CV STOP setpoint
 
 // Initial variable declarations
@@ -37,6 +44,8 @@ float solarVoltage = 0.0;
 float battRawValue = 0.0;
 float battVoltage = 0.0;
 
+long timeChargedStart = 0;
+
 // Finite State Machine for battery
 enum State{
   initialize = 0, 
@@ -45,6 +54,11 @@ enum State{
   charge_complete = 3, 
   charge_error = 4
 } ChargeState;
+
+enum UpDownControl {
+  UP,
+  DOWN
+} DutyCycleControl;
 
 void setup() {
   Serial.begin(9600);
@@ -72,6 +86,10 @@ void CheckState() {
   switch(ChargeState) {
 
     case initialize:
+      // DO SOME INITIALIZATION STUFF
+      //
+      // CALIBRATE ACS712 SENSOR
+      // 
       if (CheckNextState(ChargeState) == true) {
         ChargeState = const_current;
       }
@@ -81,28 +99,59 @@ void CheckState() {
       break;
     
     case const_current:
+      // DO SOME CONSTANT CURRENT STUFF
+      //
+      // CHECK CURRENT AND ADJUST PWM
+      //
+      if (acsCurrent > BATTERY_CURRENT_CC_LIMIT) {
+        LowerDutyCycle();
+      }
+      else if (acsCurrent < BATTERY_CURRENT_CC_LIMIT) {
+        RaiseDutyCycle();
+      }
+
       if (CheckNextState(ChargeState) == true) {
         ChargeState = const_voltage;
       }
       else {
-        // CHECK CURRENT AND ADJUST PWM
+        ChargeState = const_current;
       }
       break;
     
     case const_voltage:
+      if (battVoltage > BATTERY_VOLTAGE_HIGH_LIMIT) {
+        LowerDutyCycle();
+      }
+      else if (battVoltage < BATTERY_VOLTAGE_HIGH_LIMIT) {
+        RaiseDutyCycle();
+      }
+
       if (CheckNextState(ChargeState) == true) {
+        timeChargedStart = millis();
         ChargeState = charge_complete;
       }
       else {
-        // CHECK VOLTAGE AND ADJUST PWM
+        ChargeState = const_voltage;
       }
       break;
 
     case charge_complete:
-      // Stay here
+      // SET PWM DUTY CYCLE TO 0%
+      SetDutyCycle(0);
+
+      if (CheckNextState(ChargeState) == true) {
+        ChargeState = initialize;
+      }
+      else {
+        ChargeState = charge_complete;
+      }
       break;
 
     case charge_error:
+      SetDutyCycle(0);
+
+      ChargeState = charge_error;
+      // ADD SOME charge_error INDICATION
       // Stay here
       break;
 
@@ -148,8 +197,14 @@ boolean CheckNextState(State CurrentState) {
       }
       break;
     case charge_complete:
-      // Once here, stay here
-      nextStateReady = false;
+      long timeCharged = millis() - timeChargedStart;
+      // Once here, MONITOR VOLTAGE FOR A PERIOD OF TIME
+      if ((battVoltage <= BATTERY_VOLTAGE_CC_STOP) && (timeCharged >= TIME_LIMIT)) {
+        nextStateReady = true;
+      }
+      else {
+        nextStateReady = false;
+      }
       break;
     case charge_error:
       // Once here, stay here
@@ -171,6 +226,8 @@ float GetAcsOffset(void) {
 
   // SET THE ACS OFFSET CALIBRATION VALUE
   tempValue = GetPinVoltage(INPUT_PIN_ACS_CURRENT);
+  // IF PIN VOLTAGE - 2.5 THEN GET THE DIFFERENCE
+  // ADD THE DIFFERENCE TO OUR ORIGINAL EXPECTED PIN VALUE
 }
 // *****************************************************************
 
@@ -190,10 +247,24 @@ void RefreshBatteryVoltage() {
   battVoltage = GetPinVoltage(INPUT_PIN_BATT_VOLTAGE);    // Get battery voltage.
 }
 
+void RaiseDutyCycle() {
+  if (dutyCycle < 100) {
+    dutyCycle++;
+    SetDutyCycle(dutyCycle);
+  }
+}
+
+void LowerDutyCycle() {
+  if (dutyCycle > 0) {
+    dutyCycle--;
+    SetDutyCycle(dutyCycle);
+  }
+}
+
 // Set duty cycle for P-MOSFET
-void SetDutyCycle(int dutyCycle) {
+void SetDutyCycle(int dutyCycleRequested) {
   int pwmValue;
-  pwmValue = ConvertPWM2Analog(dutyCycle);                // Convert duty cycle (0% - 100%) to 8-bit analog output (0 - 255)
+  pwmValue = ConvertPWM2Analog(dutyCycleRequested);                // Convert duty cycle (0% - 100%) to 8-bit analog output (0 - 255)
   analogWrite(OUTPUT_PIN_PWM, pwmValue);                  // Write (0-255) analog output to output pin
 }
 
