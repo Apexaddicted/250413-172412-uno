@@ -13,15 +13,17 @@ const int NUM_READS = 100;                          // Average reads of pin valu
 const float ACS_SENSITIVITY = 185.0;                // mV/A
 const float BOARD_VOLTAGE = 4910.0;                 // Actual voltage measured on 5v pin.
 const float MID_VOLTAGE = BOARD_VOLTAGE / 2.0;      // Half the board voltage measured.
-
-const float BATTERY_LOW_LIMT = 2700.0;
-const float BATTERY_CC_LIMIT = 3700.0;
-const float BATTERY_CV_LIMIT = 4000.0;
-const float BATTERY_HARD_LIMIT = 4200.0;
+const float BATTERY_VOLTAGE_LOW_LIMIT = 2700.0;     // Absolute LOW battery voltage limit
+const float BATTERY_VOLTAGE_HIGH_LIMIT = 4100.0;    // Absolute HIGH battery voltage limit
+const float BATTERY_CURRENT_CC_LIMIT = 1250.0;      // Absolute HIGH current limit
+const float BATTERY_VOLTAGE_CC_STOP = 3900.0;       // CC STOP setpoint
+const float BATTERY_CURRENT_CV_STOP = 50.0;         // CV STOP setpoint
 
 // Initial variable declarations
 // PWM Control
 int dutyCycle = 0;
+float targetVoltage = 0.0;
+float targetCurrent = 0.0;
 
 // ACS712
 float acsRawValue = 0.0;            // Averaged input value from Aduino ADC 0-1023.
@@ -44,20 +46,16 @@ enum State{
   charge_error = 4
 } ChargeState;
 
-
 void setup() {
   Serial.begin(9600);
   pinMode(INPUT_PIN_SOLAR_VOLTAGE, INPUT);
-  pinMode(INPUT_PIN_ACS_CURRENT, INPUT);
   pinMode(INPUT_PIN_BATT_VOLTAGE, INPUT);
+  pinMode(INPUT_PIN_ACS_CURRENT, INPUT);
   pinMode(OUTPUT_PIN_PWM, OUTPUT);
-  
   //TCCR0B = TCCR0B & B11111000 | B00000011;      // for PWM frequency of 976.56 Hz (The DEFAULT)
   TCCR0B = TCCR0B & B11111000 | B00000101;        // for PWM frequency of 61.04 Hz
-
   ChargeState = initialize;
 }
-
 
 void loop() {
   RefreshChargeCurrent();
@@ -66,7 +64,6 @@ void loop() {
   CheckState();
   PrintStatus();
 }
-
 
 // ***NEED TO FINISH***
 // *****************************************************************
@@ -78,17 +75,26 @@ void CheckState() {
       if (CheckNextState(ChargeState) == true) {
         ChargeState = const_current;
       }
+      else {
+        ChargeState = charge_error;
+      }
       break;
     
     case const_current:
       if (CheckNextState(ChargeState) == true) {
         ChargeState = const_voltage;
       }
+      else {
+        // CHECK CURRENT AND ADJUST PWM
+      }
       break;
     
     case const_voltage:
       if (CheckNextState(ChargeState) == true) {
         ChargeState = charge_complete;
+      }
+      else {
+        // CHECK VOLTAGE AND ADJUST PWM
       }
       break;
 
@@ -107,65 +113,53 @@ void CheckState() {
 }
 // *****************************************************************
 
-
-// ***NEED TO FINISH***
-// *****************************************************************
 boolean CheckNextState(State CurrentState) {
   boolean nextStateReady;
-
   switch(CurrentState) {
-
     case initialize:
-      // ***STUB***
-      if (battVoltage < BATTERY_CC_LIMIT && battVoltage > BATTERY_LOW_LIMT) {
-        // move on to const_current
+      // Check battery health is good and charger is ready
+      // Check if battery is in Constant Voltage range
+      if ((battVoltage >= BATTERY_VOLTAGE_LOW_LIMIT) && (battVoltage < BATTERY_VOLTAGE_CC_STOP) && (solarVoltage > battVoltage)) { 
+        // move to const_current state
         nextStateReady = true;
       }
       else {
         nextStateReady = false;
       }
       break;
-    
     case const_current:
-      // ***STUB***
-      if (battVoltage == battVoltage) { 
-        // move on to const_voltage
+      // Check if battery is in Constant Voltage range
+      if ((battVoltage >= BATTERY_VOLTAGE_CC_STOP) && (battVoltage < BATTERY_VOLTAGE_HIGH_LIMIT)) { 
+        // move to const_voltage state
         nextStateReady = true;
       }
       else {
         nextStateReady = false;
       }
       break;
-    
     case const_voltage:
-      // ***STUB***
-      if (battVoltage == battVoltage) { 
-        // move on to charge_complete
+      // Check if charge current is below threshold
+      if ((battVoltage >= BATTERY_VOLTAGE_CC_STOP) && (acsCurrent <= BATTERY_CURRENT_CV_STOP)) { 
+        // move to charge_complete state
         nextStateReady = true;
       }
       else {
         nextStateReady = false;
       }
       break;
-
     case charge_complete:
-      // Stay here
+      // Once here, stay here
       nextStateReady = false;
       break;
-
     case charge_error:
-      // Stay here  
+      // Once here, stay here
       nextStateReady = false;
       break;
-
     default:
       nextStateReady = false;
-
   }
-
+  return nextStateReady;
 }
-// *****************************************************************
-
 
 // ***NEED TO FINISH***
 // *****************************************************************
@@ -177,10 +171,8 @@ float GetAcsOffset(void) {
 
   // SET THE ACS OFFSET CALIBRATION VALUE
   tempValue = GetPinVoltage(INPUT_PIN_ACS_CURRENT);
-  
 }
 // *****************************************************************
-
 
 // Refresh current flow from charger.
 void RefreshChargeCurrent() { 
@@ -188,40 +180,34 @@ void RefreshChargeCurrent() {
   acsCurrent = ConvertVolt2Amp(acsVoltage);               // Convert acs sensor voltage to current.
 }
 
-
 // Refresh voltage from charger.
 void RefreshChargeVoltage() {
   solarVoltage = GetPinVoltage(INPUT_PIN_SOLAR_VOLTAGE);  // Get solar panel voltage.
 }
-
 
 // Refresh voltage on battery.
 void RefreshBatteryVoltage() {
   battVoltage = GetPinVoltage(INPUT_PIN_BATT_VOLTAGE);    // Get battery voltage.
 }
 
-
-// Set duty cycle to control charging during Constant Voltage 
+// Set duty cycle for P-MOSFET
 void SetDutyCycle(int dutyCycle) {
   int pwmValue;
-  pwmValue = ConvertPWM2Analog(dutyCycle);                          // Convert duty cycle (0% - 100%) to 8-bit analog output (0 - 255)
-  analogWrite(OUTPUT_PIN_PWM, pwmValue);                            // Write (0-255) analog output to output pin
+  pwmValue = ConvertPWM2Analog(dutyCycle);                // Convert duty cycle (0% - 100%) to 8-bit analog output (0 - 255)
+  analogWrite(OUTPUT_PIN_PWM, pwmValue);                  // Write (0-255) analog output to output pin
 }
 
-
-// Get the 10-bit value on a pin and convert it to a voltage
+// Get 10-bit value on pin and convert to voltage
 float GetPinVoltage(int inputPin) {
-  float analogValue = GetAvgInput(100, inputPin);                   // Get average analog value on input pin. (0.0 - 1023.0)
-  float pinVoltage = ConvertAnalog2Volt(analogValue);               // Convert acsRawValue to voltage. (0.0V - 5000.0V)
+  float analogValue = GetAvgInput(100, inputPin);         // Get average analog value on input pin. (0.0 - 1023.0)
+  float pinVoltage = ConvertAnalog2Volt(analogValue);     // Convert acsRawValue to voltage. (0.0V - 5000.0V)
   return pinVoltage;
 }
-
 
 // Convert 10-bit value to a calculated voltage (0.0V - 5000.0V)
 float ConvertAnalog2Volt(float analogValue) {
   return ((BOARD_VOLTAGE/1023.0) * analogValue);
 }
-
 
 // Convert ACS712 sensor voltage to a calculated current (-5000.0mA - 5000.0mA)
 float ConvertVolt2Amp(float inputVoltage) {
@@ -230,14 +216,12 @@ float ConvertVolt2Amp(float inputVoltage) {
   return tempValue * 1000.0;
 }
 
-
 // Scale a (0-100) value to an 8-bit (0 - 255) value
 int ConvertPWM2Analog(int percentPWM) {
   float tempValue;
   tempValue = ((percentPWM/100.0) * 255.0);
   return tempValue;
 }
-
 
 // Return the average value on inputPin
 float GetAvgInput(int numReads, int inputPin) {
@@ -249,7 +233,6 @@ float GetAvgInput(int numReads, int inputPin) {
   averagedInput = combinedInputs / numReads;
   return averagedInput;
 }
-
 
 // Get the string value for the current state
 String GetCurrentState() {
@@ -275,7 +258,6 @@ String GetCurrentState() {
   }
   return currState;
 }
-
 
 // Print readings to Serial Monitor for debugging
 void PrintStatus() {
