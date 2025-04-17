@@ -11,20 +11,33 @@
 #define PWM_UP 1
 #define PWM_DOWN -1
 
+
+
 // Constants
 const int NUM_READS = 100;                          // Average reads of pin value.
 const int TIME_LIMIT = 10000;                       // Time limit to let battery voltage discharge in charge_complete state.
+
+const float SOLAR_VOLTAGE_DIVIDER_R1 = 100.0;
+const float SOLAR_VOLTAGE_DIVIDER_R2 = 200.0;
+
+const float BATTERY_VOLTAGE_DIVIDER_R1 = 100.0;
+const float BATTERY_VOLTAGE_DIVIDER_R2 = 200.0;
 
 const float ACS_SENSITIVITY = 185.0;                // mV/A
 const float BOARD_VOLTAGE = 4910.0;                 // Actual voltage measured on 5v pin.
 const float MID_VOLTAGE = BOARD_VOLTAGE / 2.0;      // Half the board voltage measured.
 
-const float BATTERY_VOLTAGE_LOW_LIMIT = 2700.0;     // Absolute LOW battery voltage limit
-const float BATTERY_VOLTAGE_HIGH_LIMIT = 3700.0;    // Absolute HIGH battery voltage limit
-const float BATTERY_CURRENT_CC_LIMIT = 1250.0;      // Absolute HIGH current limit
+const float BATTERY_VOLTAGE_LOW_LIMIT = 3000.0;     // Absolute LOW battery voltage limit
+//const float BATTERY_VOLTAGE_HIGH_LIMIT = 3700.0;    // Absolute HIGH battery voltage limit
+const float BATTERY_VOLTAGE_HIGH_LIMIT = 4100.0;
+//const float BATTERY_CURRENT_CC_LIMIT = 1250.0;      // Absolute HIGH current limit
+const float BATTERY_CURRENT_CC_LIMIT = 125.0;
 
-const float BATTERY_VOLTAGE_CC_STOP = 3500.0;       // CC STOP setpoint
+//const float BATTERY_VOLTAGE_CC_STOP = 3500.0;       // CC STOP setpoint
+const float BATTERY_VOLTAGE_CC_STOP = 4100.0;
 const float BATTERY_CURRENT_CV_STOP = 50.0;         // CV STOP setpoint
+
+const boolean DEBUG_SESSION = true;
 
 // Initial variable declarations
 // PWM Control
@@ -46,8 +59,9 @@ float battVoltage = 0.0;
 
 long timeChargedStart = 0;
 
+boolean nextState;
 // Finite State Machine for battery
-enum State{
+enum State {
   initialize = 0, 
   const_current = 1, 
   const_voltage = 2, 
@@ -76,7 +90,9 @@ void loop() {
   RefreshChargeVoltage();
   RefreshBatteryVoltage();
   CheckState();
-  PrintStatus();
+  if (DEBUG_SESSION == true) {
+    PrintStatus();
+  }
 }
 
 // ***NEED TO FINISH***
@@ -92,6 +108,7 @@ void CheckState() {
       // 
       if (CheckNextState(ChargeState) == true) {
         ChargeState = const_current;
+        SetDutyCycle(100);
       }
       else {
         ChargeState = charge_error;
@@ -99,10 +116,6 @@ void CheckState() {
       break;
     
     case const_current:
-      // DO SOME CONSTANT CURRENT STUFF
-      //
-      // CHECK CURRENT AND ADJUST PWM
-      //
       if (acsCurrent > BATTERY_CURRENT_CC_LIMIT) {
         LowerDutyCycle();
       }
@@ -136,7 +149,6 @@ void CheckState() {
       break;
 
     case charge_complete:
-      // SET PWM DUTY CYCLE TO 0%
       SetDutyCycle(0);
 
       if (CheckNextState(ChargeState) == true) {
@@ -168,7 +180,7 @@ boolean CheckNextState(State CurrentState) {
     case initialize:
       // Check battery health is good and charger is ready
       // Check if battery is in Constant Voltage range
-      if ((battVoltage >= BATTERY_VOLTAGE_LOW_LIMIT) && (battVoltage < BATTERY_VOLTAGE_CC_STOP) && (solarVoltage > battVoltage)) { 
+      if ((battVoltage >= BATTERY_VOLTAGE_LOW_LIMIT) && (battVoltage < BATTERY_VOLTAGE_HIGH_LIMIT) && (solarVoltage > battVoltage)) { 
         // move to const_current state
         nextStateReady = true;
       }
@@ -176,6 +188,7 @@ boolean CheckNextState(State CurrentState) {
         nextStateReady = false;
       }
       break;
+
     case const_current:
       // Check if battery is in Constant Voltage range
       if ((battVoltage >= BATTERY_VOLTAGE_CC_STOP) && (battVoltage < BATTERY_VOLTAGE_HIGH_LIMIT)) { 
@@ -186,6 +199,7 @@ boolean CheckNextState(State CurrentState) {
         nextStateReady = false;
       }
       break;
+
     case const_voltage:
       // Check if charge current is below threshold
       if ((battVoltage >= BATTERY_VOLTAGE_CC_STOP) && (acsCurrent <= BATTERY_CURRENT_CV_STOP)) { 
@@ -196,6 +210,7 @@ boolean CheckNextState(State CurrentState) {
         nextStateReady = false;
       }
       break;
+
     case charge_complete:
       long timeCharged = millis() - timeChargedStart;
       // Once here, MONITOR VOLTAGE FOR A PERIOD OF TIME
@@ -206,10 +221,12 @@ boolean CheckNextState(State CurrentState) {
         nextStateReady = false;
       }
       break;
+      
     case charge_error:
       // Once here, stay here
       nextStateReady = false;
       break;
+      
     default:
       nextStateReady = false;
   }
@@ -239,24 +256,26 @@ void RefreshChargeCurrent() {
 
 // Refresh voltage from charger.
 void RefreshChargeVoltage() {
-  solarVoltage = GetPinVoltage(INPUT_PIN_SOLAR_VOLTAGE);  // Get solar panel voltage.
+  float pinVoltage = GetPinVoltage(INPUT_PIN_SOLAR_VOLTAGE); 
+  solarVoltage = pinVoltage * ((SOLAR_VOLTAGE_DIVIDER_R1 + SOLAR_VOLTAGE_DIVIDER_R2) / SOLAR_VOLTAGE_DIVIDER_R2);  
 }
 
 // Refresh voltage on battery.
 void RefreshBatteryVoltage() {
-  battVoltage = GetPinVoltage(INPUT_PIN_BATT_VOLTAGE);    // Get battery voltage.
+  float pinVoltage = GetPinVoltage(INPUT_PIN_BATT_VOLTAGE);    // Get battery voltage.
+  battVoltage = pinVoltage * ((BATTERY_VOLTAGE_DIVIDER_R1 + BATTERY_VOLTAGE_DIVIDER_R2) / BATTERY_VOLTAGE_DIVIDER_R2);
 }
 
 void RaiseDutyCycle() {
-  if (dutyCycle < 100) {
-    dutyCycle++;
+  if (dutyCycle < 90) {
+    dutyCycle == dutyCycle + 10;
     SetDutyCycle(dutyCycle);
   }
 }
 
 void LowerDutyCycle() {
-  if (dutyCycle > 0) {
-    dutyCycle--;
+  if (dutyCycle > 10) {
+    dutyCycle == dutyCycle - 10;
     SetDutyCycle(dutyCycle);
   }
 }
@@ -337,6 +356,9 @@ void PrintStatus() {
   Serial.print("Current State: ");
   Serial.print(currState);
   Serial.print("\n");
+  Serial.print("NextStateReady: ");
+  Serial.print(nextState);
+  Serial.print("\n");
   Serial.print ("Duty Cycle: ");
   Serial.print(dutyCycle);
   Serial.print("\n");
@@ -352,4 +374,5 @@ void PrintStatus() {
   Serial.print(acsCurrent);
   Serial.print(" mA");
   Serial.print("\n");
+  delay(500);
 }
