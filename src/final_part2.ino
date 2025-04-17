@@ -268,14 +268,14 @@ void RefreshBatteryVoltage() {
 
 void RaiseDutyCycle() {
   if (dutyCycle < 90) {
-    dutyCycle == dutyCycle + 10;
+    dutyCycle = dutyCycle + 10;
     SetDutyCycle(dutyCycle);
   }
 }
 
 void LowerDutyCycle() {
   if (dutyCycle > 10) {
-    dutyCycle == dutyCycle - 10;
+    dutyCycle = dutyCycle - 10;
     SetDutyCycle(dutyCycle);
   }
 }
