@@ -14,7 +14,7 @@
 
 
 // Constants
-const int NUM_READS = 100;                          // Average reads of pin value.
+const int NUM_READS = 1000;                          // Average reads of pin value.
 const int TIME_LIMIT = 10000;                       // Time limit to let battery voltage discharge in charge_complete state.
 
 const float SOLAR_VOLTAGE_DIVIDER_R1 = 100.0;
@@ -27,14 +27,14 @@ const float ACS_SENSITIVITY = 185.0;                // mV/A
 const float BOARD_VOLTAGE = 4910.0;                 // Actual voltage measured on 5v pin.
 const float MID_VOLTAGE = BOARD_VOLTAGE / 2.0;      // Half the board voltage measured.
 
-const float BATTERY_VOLTAGE_LOW_LIMIT = 3000.0;     // Absolute LOW battery voltage limit
+const float BATTERY_VOLTAGE_LOW_LIMIT = 2500.0;     // Absolute LOW battery voltage limit
 //const float BATTERY_VOLTAGE_HIGH_LIMIT = 3700.0;    // Absolute HIGH battery voltage limit
-const float BATTERY_VOLTAGE_HIGH_LIMIT = 4100.0;
-//const float BATTERY_CURRENT_CC_LIMIT = 1250.0;      // Absolute HIGH current limit
-const float BATTERY_CURRENT_CC_LIMIT = 125.0;
+const float BATTERY_VOLTAGE_HIGH_LIMIT = 4200.0;
+const float BATTERY_CURRENT_CC_LIMIT = 1250.0;      // Absolute HIGH current limit
+//const float BATTERY_CURRENT_CC_LIMIT = 125.0;
 
 //const float BATTERY_VOLTAGE_CC_STOP = 3500.0;       // CC STOP setpoint
-const float BATTERY_VOLTAGE_CC_STOP = 4100.0;
+const float BATTERY_VOLTAGE_CC_STOP = 3900.0;
 const float BATTERY_CURRENT_CV_STOP = 50.0;         // CV STOP setpoint
 
 const boolean DEBUG_SESSION = true;
@@ -57,9 +57,14 @@ float solarVoltage = 0.0;
 float battRawValue = 0.0;
 float battVoltage = 0.0;
 
-long timeChargedStart = 0;
+long millisChargeComplete = 0;
+long millisCurrent = 0;
+long millisPrevious = 0;
+long millisInterval = 100;
 
+boolean intervalElapsed;
 boolean nextState;
+
 // Finite State Machine for battery
 enum State {
   initialize = 0, 
@@ -68,11 +73,6 @@ enum State {
   charge_complete = 3, 
   charge_error = 4
 } ChargeState;
-
-enum UpDownControl {
-  UP,
-  DOWN
-} DutyCycleControl;
 
 void setup() {
   Serial.begin(9600);
@@ -83,6 +83,7 @@ void setup() {
   //TCCR0B = TCCR0B & B11111000 | B00000011;      // for PWM frequency of 976.56 Hz (The DEFAULT)
   TCCR0B = TCCR0B & B11111000 | B00000101;        // for PWM frequency of 61.04 Hz
   ChargeState = initialize;
+  millisCurrent = millis();
 }
 
 void loop() {
@@ -95,12 +96,8 @@ void loop() {
   }
 }
 
-// ***NEED TO FINISH***
-// *****************************************************************
 void CheckState() {
-
   switch(ChargeState) {
-
     case initialize:
       // DO SOME INITIALIZATION STUFF
       //
@@ -108,7 +105,7 @@ void CheckState() {
       // 
       if (CheckNextState(ChargeState) == true) {
         ChargeState = const_current;
-        SetDutyCycle(100);
+        SetDutyCycle(0);
       }
       else {
         ChargeState = charge_error;
@@ -140,7 +137,7 @@ void CheckState() {
       }
 
       if (CheckNextState(ChargeState) == true) {
-        timeChargedStart = millis();
+        millisChargeComplete = millis();
         ChargeState = charge_complete;
       }
       else {
@@ -162,17 +159,18 @@ void CheckState() {
     case charge_error:
       SetDutyCycle(0);
 
-      ChargeState = charge_error;
-      // ADD SOME charge_error INDICATION
-      // Stay here
+      if (CheckNextState(ChargeState) == true) {
+        ChargeState = initialize;
+      }
+      else {
+        ChargeState = charge_error;
+      }
       break;
 
     default:
       ChargeState = charge_error;
   }
-
 }
-// *****************************************************************
 
 boolean CheckNextState(State CurrentState) {
   boolean nextStateReady;
@@ -212,8 +210,8 @@ boolean CheckNextState(State CurrentState) {
       break;
 
     case charge_complete:
-      long timeCharged = millis() - timeChargedStart;
-      // Once here, MONITOR VOLTAGE FOR A PERIOD OF TIME
+      long timeCharged = millis() - millisChargeComplete;
+      // Once here, MONITOR VOLTAGE FOR A PERIOD OF TIlong timeDelayLimitME
       if ((battVoltage <= BATTERY_VOLTAGE_CC_STOP) && (timeCharged >= TIME_LIMIT)) {
         nextStateReady = true;
       }
@@ -223,8 +221,13 @@ boolean CheckNextState(State CurrentState) {
       break;
       
     case charge_error:
-      // Once here, stay here
-      nextStateReady = false;
+      if ((battVoltage >= BATTERY_VOLTAGE_LOW_LIMIT) && (battVoltage < BATTERY_VOLTAGE_HIGH_LIMIT) && (solarVoltage > battVoltage)) { 
+        // move to const_current state
+        nextStateReady = true;
+      }
+      else {
+        nextStateReady = false;
+      }
       break;
       
     default:
@@ -267,23 +270,24 @@ void RefreshBatteryVoltage() {
 }
 
 void RaiseDutyCycle() {
-  if (dutyCycle < 90) {
-    dutyCycle = dutyCycle + 10;
+  //if (dutyCycle < 90) {
+    dutyCycle = constrain((dutyCycle + 10), 0, 100);
     SetDutyCycle(dutyCycle);
-  }
+  //}
 }
 
 void LowerDutyCycle() {
-  if (dutyCycle > 10) {
-    dutyCycle = dutyCycle - 10;
+  //if (dutyCycle > 10) {
+    dutyCycle = constrain((dutyCycle - 10), 0, 100);
     SetDutyCycle(dutyCycle);
-  }
+  //}
 }
 
 // Set duty cycle for P-MOSFET
 void SetDutyCycle(int dutyCycleRequested) {
+  float percentPWM = (float)dutyCycleRequested;
   int pwmValue;
-  pwmValue = ConvertPWM2Analog(dutyCycleRequested);                // Convert duty cycle (0% - 100%) to 8-bit analog output (0 - 255)
+  pwmValue = ConvertPWM2Analog(percentPWM);                // Convert duty cycle (0% - 100%) to 8-bit analog output (0 - 255)
   analogWrite(OUTPUT_PIN_PWM, pwmValue);                  // Write (0-255) analog output to output pin
 }
 
@@ -307,9 +311,9 @@ float ConvertVolt2Amp(float inputVoltage) {
 }
 
 // Scale a (0-100) value to an 8-bit (0 - 255) value
-int ConvertPWM2Analog(int percentPWM) {
+int ConvertPWM2Analog(float percentPWM) {
   float tempValue;
-  tempValue = ((percentPWM/100.0) * 255.0);
+  tempValue = constrain(((percentPWM/100.0) * 255.0), 0, 255);
   return tempValue;
 }
 
@@ -349,30 +353,46 @@ String GetCurrentState() {
   return currState;
 }
 
+boolean IntervalIsElapsed() {
+  millisCurrent = millis();
+  if ((millisCurrent - millisPrevious) >= millisInterval) {
+    millisPrevious = millis();
+    return true;
+  }
+  else {
+    return false;
+  }
+}
+
 // Print readings to Serial Monitor for debugging
 void PrintStatus() {
-  String currState = GetCurrentState();
-  Serial.print("\n");
-  Serial.print("Current State: ");
-  Serial.print(currState);
-  Serial.print("\n");
-  Serial.print("NextStateReady: ");
-  Serial.print(nextState);
-  Serial.print("\n");
-  Serial.print ("Duty Cycle: ");
-  Serial.print(dutyCycle);
-  Serial.print("\n");
-  Serial.print("Solar Voltage: ");
-  Serial.print(solarVoltage);
-  Serial.print(" mV");
-  Serial.print("\n");
-  Serial.print("Battery Voltage: ");
-  Serial.print(battVoltage);
-  Serial.print(" mV");
-  Serial.print("\n");
-  Serial.print("Charge Current: ");
-  Serial.print(acsCurrent);
-  Serial.print(" mA");
-  Serial.print("\n");
-  delay(500);
+  boolean intervalCheck = IntervalIsElapsed();
+  if (intervalCheck == true) {
+    String currState = GetCurrentState();
+    Serial.print("\n");
+    Serial.print("Current State: ");
+    Serial.print(currState);
+    Serial.print("\n");
+    Serial.print("NextStateReady: ");
+    Serial.print(nextState);
+    Serial.print("\n");
+    Serial.print ("Duty Cycle: ");
+    Serial.print(dutyCycle);
+    Serial.print("\n");
+    Serial.print("Solar Voltage: ");
+    Serial.print(solarVoltage);
+    Serial.print(" mV");
+    Serial.print("\n");
+    Serial.print("Battery Voltage: ");
+    Serial.print(battVoltage);
+    Serial.print(" mV");
+    Serial.print("\n");
+    Serial.print("Charge Current: ");
+    Serial.print(acsCurrent);
+    Serial.print(" mA");
+    Serial.print("\n");
+    Serial.print("millisCurrent: ");
+    Serial.print(millisCurrent);
+    Serial.print("\n");
+  }
 }
