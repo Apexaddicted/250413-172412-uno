@@ -12,7 +12,7 @@
 
 // Constants
 const int NUM_READS = 1000;                           // Average reads of pin value.
-const int TIME_LIMIT = 1000;                          // Time limit to let battery voltage discharge in charge_complete state.
+const int TIME_LIMIT = 2000;                          // Time limit to let battery voltage discharge in charge_complete state.
 const int STATE_CHECKS_DONE = 20;
 
 const float SOLAR_VOLTAGE_DIVIDER_R1 = 100.0;
@@ -32,8 +32,6 @@ const float BATTERY_CURRENT_CC_LIMIT = 700.0;         // Absolute HIGH current l
 const float BATTERY_VOLTAGE_CC_STOP = 3800.0;         // CC STOP setpoint (mV)
 const float BATTERY_CURRENT_CV_STOP = 5.0;           // CV STOP setpoint (mA)
 
-// Initial variable declarations
-// PWM Control
 int dutyCycle = 0;
 
 // ACS712
@@ -96,10 +94,6 @@ void CheckState() {
   else {
     switch(ChargeState) {
       case initialize:
-        // DO SOME INITIALIZATION STUFF
-        //
-        // CALIBRATE ACS712 SENSOR
-        // 
         if (CheckNextState(ChargeState) == true) {
           ChargeState = const_current;
           SetDutyCycle(0);
@@ -237,7 +231,7 @@ boolean CheckNextState(State CurrentState) {
     case charge_complete:
       long timeCharged = millis() - millisChargeComplete;
       // Once here, monitor voltage for a period of time
-      if ((battVoltage <= BATTERY_VOLTAGE_CC_STOP) && (timeCharged <= TIME_LIMIT)) {
+      if ((battVoltage <= BATTERY_VOLTAGE_CC_STOP) && (timeCharged >= TIME_LIMIT)) {
         if (stateChecks == STATE_CHECKS_DONE) {
           // move to const_current state
           nextStateReady = true;
@@ -276,32 +270,17 @@ boolean CheckNextState(State CurrentState) {
   return nextStateReady;
 }
 
-// ***NEED TO FINISH***
-// *****************************************************************
-float GetAcsOffset(void) {
-  float tempValue;
-  // READ ACS PIN VOLTAGE WHILE WE KNOW THAT NO CURRENT IS FLOWING
-  SetDutyCycle(0);
-  delay(10);
-
-  // SET THE ACS OFFSET CALIBRATION VALUE
-  tempValue = GetPinVoltage(INPUT_PIN_ACS_CURRENT);
-  // IF PIN VOLTAGE - 2.5 THEN GET THE DIFFERENCE
-  // ADD THE DIFFERENCE TO OUR ORIGINAL EXPECTED PIN VALUE
-}
-// *****************************************************************
-
 
 // *****************************************************************
 //    PWM CONTROL
 // *****************************************************************
 void RaiseDutyCycle() {
-  dutyCycle = constrain((dutyCycle + 10), 0, 100);
+  dutyCycle = constrain((dutyCycle + 1), 0, 100);
   SetDutyCycle(dutyCycle);
 }
 
 void LowerDutyCycle() {
-    dutyCycle = constrain((dutyCycle - 10), 0, 100);
+    dutyCycle = constrain((dutyCycle - 1), 0, 100);
     SetDutyCycle(dutyCycle);
 }
 
@@ -379,6 +358,7 @@ float GetAvgInput(int numReads, int inputPin) {
   averagedInput = combinedInputs / numReads;
   return averagedInput;
 }
+
 
 // *****************************************************************
 //    SERIAL MONITOR
